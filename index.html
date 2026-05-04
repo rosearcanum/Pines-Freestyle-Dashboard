@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Miami Ice Arena Freestyle Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
+    <div class="layout">
+
+        <!-- ---- SIDEBAR ---- -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <img class="zamboni-icon" src="data:image/png;base64,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" alt="Zamboni">
+                <h2>Zamboni Log</h2>
+            </div>
+            <p class="sidebar-desc">Enter each ice cleaning start time. Affected skaters get +10 min automatically.</p>
+
+            <div class="zamboni-input-row">
+                <input type="text" id="zamboni-input" class="zamboni-input" placeholder="e.g. 3:00 PM" maxlength="10" />
+                <button id="zamboni-add-btn" onclick="addZamboni()">Add</button>
+            </div>
+            <div id="zamboni-error" class="zamboni-error"></div>
+
+            <ul id="zamboni-list" class="zamboni-list"></ul>
+
+            <button class="clear-btn" onclick="clearAllZamboni()">Clear All</button>
+
+            <div class="sidebar-footer">
+                <div class="sidebar-stat">
+                    <span id="zamboni-count">0</span>
+                    <span>cleanings today</span>
+                </div>
+                <div class="sidebar-stat">
+                    <span id="zamboni-affected">0</span>
+                    <span>skaters affected</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Mobile sidebar toggle -->
+        <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">
+            🚧 Zamboni
+        </button>
+
+        <!-- ---- MAIN ---- -->
+        <main class="main">
+            <header>
+                <div class="header-left">
+                    <div class="rink-icon">
+                        <svg viewBox="0 0 60 40" xmlns="http://www.w3.org/2000/svg">
+                            <ellipse cx="30" cy="20" rx="28" ry="18" fill="none" stroke="currentColor" stroke-width="2"/>
+                            <line x1="30" y1="2" x2="30" y2="38" stroke="currentColor" stroke-width="1" stroke-dasharray="3,2"/>
+                            <circle cx="30" cy="20" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/>
+                            <circle cx="30" cy="20" r="1.5" fill="currentColor"/>
+                        </svg>
+                    </div>
+                    <img class="blossom-icon" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADQAAAA0CAYAAADFeBvrAAAN9UlEQVR4nO1aeYxe1XX/nXPffcu3zTczjMcG4wUKONhliW0wCBW7SYkiAVLa4oZUbVqyNErVqk26pW0yA0rTVqKN1KpJQGklpDZSx1XaqE0KaROPE5Ri4wWbEGACjAFDmLE9y7e+9+5y+sc3Yzz2bNiDKlUcaTSfvnn3vN9Z7u+ec+4A78g78v9DRISHhobUfN+LCP9fYLogERE6G/Bin0WEVvr9wUoqExEiIgEg2XOvXmenGyERHRQRBQBE5BoHRm7USeKJ6Og5a1ZEViz0s94eHR2N88MnHuYWP5UkPU+2D4zeR0SOiFz7yeMfSaLKYTbqSH7kxFfltdcKoDfXroSsmCIR4T179tBd627+t7iv/0576qQjVqTiiNO8dh8cKE7Kf2/bmYgXr/v6VH76jUef5pN3b9261RGRXwkcK2KQ7N0b0K5dNjs8em9YWvU1MzGZEyEUESFiCuIIgMCmGWQ2xwS57u0O89rJX4m2bvhH2SsB7SJ7sVhWJuVO7uzsAcsfgrEe1NHbAe5h2m1v2qkXERBRx4kkCrnx5OiXAQA7sSIRumhSmHG4G9v7wxIJbUeaMkQIs7g7v893nICRZiSCraeeGKkQUW0lCGIlIkQA0FUpXs7Efc6a5SUyAdYaKKa+iHnd2bouRlbMIEXBRlUosADuTHgWXUQEwKmogID5srN1XYwsaZCIsOzdG4gICUAzB6KSvRKICA8PDxMAOPEBQBBZfsaICMAKhCABgOHh4Y7+jm4lIjzzTprBsCTeRfeQDA0pInLAWRv2nBwXEZYhUW2MTsGZM5tmmULwBop8XYZEoXyIZuh7LkF0VNozmHbvdm/ZoIGBAabdu13z0AvbtCp+nL37aTE+IoUpUeqEEJ70jP8ioucAoHbo+ZMuy8BgFiwdJYEIM7Ntp75F7RNdu8kBcNlTr2wh1j9LudtO3veDpRekWl7xs3ma/h3tuOLowMAA33///fOy4rzeFBEmIt/e/9LHdFT6sooKCnnW+SMzoBRABNeqGa94n4N/MLnhssfy/S8/p6PiNSZrewgAIk/zOE0AJyIURglnpjka37T+ivaRl+/QHH5arH9PUOxS8B7wDnC+EyEdwuVNY9r130p2/NRDsxiXNGg2pK3DL92eRN3DttkS770DwATMppwAAAOBKpSAgJE2J/+G4S4Nk55fNLWa04WCQhTD1abn7CsigooLMK2mBKUSZenUN0jwWlTs+iQ8wTYbEIjtQBOCgEAkEBFmFahCCJPWbwm3bXxiaGhI7T4n/c5PuXvumbFUhRAP8d4z0byp6QHxzboHwHGp67ez6QmXtye8rnarvDU9TKb9GLF6gDyUF/FMFIj4PGvXj7Di61xtKiHxd0ZdPcrU6gLAE5EizL6P3nQ5EcQ7J04UWEUAcA/uOQ/TeaxBRE5E+C++8Q/fyVu17+pSSQlk3k1InWJAERGZZsMFQaTyWtvDA9DqmVaffwjwRumIdVIIlA4hsKPxzet2mLS5LzAEZk2m2XDUkfP6p1kREReUKsq0m4+F7163T0SYOvvuXEzzLP6hhLSF8uahF7YmunrQttqeiBalTAEsEZRv55ROTPvKhrWc+tb+wKkbQDLuIUfDpHJn3p4eddZ+m0+l93KlUKYkBJZRbQvggyjkVjp5Q2nHNUdnMZ773LwgaQvlzaMjawNVvE+slYUMP6OEGbrcFShiUnGIqFhgTDXBjlY5sWNe3JhV8i2wghD/OGr434guuaRCsSZ0zjcrIovXciLkrRMdFj966omRtfMZg3OBighheFilxY2DOkx+U+m4auo1oQXOFgGEmck52xLl/4O9ep++pL8rm3rj4frxsZ/0rrl0wCR2H+XYIfAZE6etycYpbtuC6i9/M4oKn3S5EV3tYWQpbLuFxYoMAUSXK+RNa8qa9t/+oH78gZ07d7qz6785LTERSVZcf2WcFP9EOamaRt0uZMzsIhVGEJYX4+0bfskp+4jP05oC31W4rPf21nS97upZL5R6gYmbxuTHpZVtku7oaZ3EDY4KFOiQ8/rpL2RpY5iTAhaLFAFk6tOWDVXDuOuzWysbriIiObuCOI+9nA4aptVoMYUxgAU3KQAQEdu0DQZvzg+8MsoUwDYmj7DiShQVtuUVX8+nWt2cRG9AoZ2Ot7p1V3IiKlfeF3B0l8uaz1rYU3lZfTFqCnEU73Rpy2Pxkkx5b71tpi0VpNMAgMHBs42e43AmIp/tPz4cFqu3542aZeIlWwwCQekQUAyECrbRGPPkXyRGKW1mr0DJg2DxPsVAsVreCJHTXtBk8EZ4udRbw0oFSvzSFYYXsWGpHOTtye9F2zfeLgPCdP+bB+xcT+zpGJgp91nxFqGOAhFZsot08M5r7Uza/HYznbyPiwXLzJtUmMSqEvxZ5dar91V2XPP9sDt5gFidFqGyUnq7t/Zlb/PxMCoo75a2RkSs1joQn8Mp+ZwAhM1zgzLH+7S7cwYR0fdb//PSB8Ok9GVdqHbb6SkRgus4gIjOjqwAilmxd/BE7w4zrPZpoytvt8ZJZ1nGtnf20dbkVKSoWLK56Q67K82czL9EYfAB6GA1Opw1J8WlU/IJCB4CpSvVwJrWlGlPf7xw81X7ZrDOOYvmZ6+Z8mfq8ZErC8Xi59nzblUoM9I2XJ7Di/dAZw9BMeAl87nJfNuw89kp69xPwmKpm+Ow7AL7kjPyV845ipPoU0htl6tnLUnN+lKlvAZaAaGCJ0Ck8wOIExFiYlZRCIQxXNYAFPY00tofVW+65qWFqu4FGUyGRM2exM1jr28NPX6NnH+v97haxwUGEUyjZnVcCuoTYwMjjdaDVxcL+6I4Xh1We9eabLrlRWrwGHdpvtYaM5aUi4lAAqWLq7zLXzC1+klq215jrbAOrg1LiSKtRZfKBACm3bTMGBHF380ZjxSvu/TgudiWbRAAyMAAY3AQs1WtiAT1Z16+OjGq30M2kOdBJeHluWkcUSEd0ir5GHSMLG/+oXd2VyB4r2d62k81L/feTQfVclMFyZXGth+NSN/IXV2Xpo3Jh5Ib1/5O+/EXn9FJ5VqP9ogl+4UkLh3PnB3/8y1rnr//zfd38CzQOixp0BnDOjxPIHgCyejeI9XLu/r/maB+zhkjOo4ZWsPUpj1rTca1v6Y53GXFnmRgbTbV1OQo0atK+0NdvNXmrc87J+ujrks+bKYn2kLmgJLgFgFrCgJ4sv957NVD92y7++7WzBCSAchyZnfL7i5lQBiDkOahZ1dHXH08KHRdYaZOeyJmgXig0/uI99B9/ZDpceTOfS+qXPIz9amxj3LDfkJXorUkYnWlby3SFmyaglUALiTwrSa8ACLidXcv2+bUcxNmYteqmzaPYXCQFovK2bKsIYmIEDbvoeHhYaV9MhQkxSvM5IQh4s78DcQEBCIiFGhx0xOnMnF/TZ42wuSgRnofi6xXzFVHdBztpjN57sAMJ05Ms3mGtImIzcRpE8SVTV1U/jpwKMDmzbTccfFypz5Mu3e7m4vrfzes9t1mpmuGmPQ8z/mgUCTj0ieSbRs+DUIG71BU8a2RCvtA5P69cOA9uW19SXd1KQEsdY6BOXRNTNpMT5qouuqW7GDfp2bYbFlYly7bRQgEvH7w+d4+XxpRSndZkxMvUOMREbw4A8Ir8LJRBSGnUzVHINbVgvMiXySRO1RYuN5lbU+Yvy0REeEgEIFpZPCbitvWvwEBlhpELm31MBSBpNfHv64r3d3O5H4hY2aAgElpHRauJApYxIN1oDggYuEgLPX8vtaF633axkLGzDiGvLU+KPVUAsiHCSQYHl60tgSWMwreCTcwMMBMdC+yVJYzphIRmHSmKfQEFSqQKIj3MLUJCxAv1TDOGoUsE3j+oIj8JYAFx1ezsngXOjNr/r1f+NU+ErlK8oywzOtEImIBnCoWxTP/tw/oO6pQkpnSablkxD7LiIQ2tY6duIyIRAYGFl27uOLBwc6YVyWxCKK3MhWdRYQoIkf+K1D+q0iitzZa7egAAMXi5iOh82RZpDA8PKxuLWw8Fsblq0y75QEoIoIAaiEFAnilQ3iXnZ7KGlcCQFdUeIE57vM2l8X2j3RSSyDwOo45z5uvhoX6JmzebDqBX9gnyyKFXbt2WSJ6GD09gS6XQ10uq6CQKMWLLBdxXCyw9fYP+m57V73vtnfVnbOfUaUCQeavwwCAiaCLRaXL5UCXyyF6ewOw/yfasiXvkMLiAV4ebQPAjxHa+it/DBUkJs8PM6uMBY8oBGXn3Jy5g3gxuqdXp9Nv/Gty0xU/L0Mzl8a7yWUHjn89rPZ/wJw+aYhZn/UeUUqRF9c0cJ8gQhQE8fXeWzeh1J+uvn51C1iati/q+sLsHz0QxOVtJk09AUogHgKnu3t1Xp/8wUTAd6y+fnUbb7qVxp8ZL1TT/LGw3H2rmZw0AILOTZ94HcdkTPNYuH3DDReKadn3Q4KZK429EsjISCRDQ0qIxxEXCF68iIjWEeuebp03J75ZrzTfv+aGNc2Zal2ISDA4iP4t/Y26fe39pjn1qO7p0TrQ1BmMkEUUk/d0UoZEybdGItkrwexVzoUauDzjZlKodXD0Q/bYeE2OjIk/PCb2qfHR9PCrnznz3DwUe/Z36eETn7OHXx+Tp8ZFjp4S98xElh0+/hGgM1C6EGwXbfn4vh+tqfb1bID1ua7aH9G6de1Zjy6U7zPdqAgEU8eOdReo/1ryEjdN7Xh129UvXiymC5Z5I/AWPDsb6XPWv73ptZSICMnQkLrQ/93prBc1ewX5dmB8R96Rt1H+FxVYtMEj8ZgFAAAAAElFTkSuQmCC" alt="Cherry Blossom">
+                    <div class="title-block">
+                        <h1>FREESTYLE <span class="accent">SESSION</span></h1>
+                        <p class="subtitle">Miami Ice Arena · Live Dashboard</p>
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="clock-block">
+                        <div class="clock-label">Current Time</div>
+                        <div id="live-clock" class="live-clock">--:-- --</div>
+                    </div>
+                    <div class="status-block">
+                        <div id="status-dot" class="status-dot"></div>
+                        <span id="status-text" class="status-text">Connecting...</span>
+                    </div>
+                    <button id="refresh-btn" onclick="fetchData()">↻ Refresh</button>
+                </div>
+            </header>
+
+            <div class="stats-bar">
+                <div class="stat">
+                    <span class="stat-value" id="stat-total">0</span>
+                    <span class="stat-label">On Ice</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat">
+                    <span class="stat-value urgent" id="stat-urgent">0</span>
+                    <span class="stat-label">Leaving Soon</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat">
+                    <span class="stat-value" id="stat-refresh">--</span>
+                    <span class="stat-label">Next Refresh</span>
+                </div>
+            </div>
+
+            <div class="table-wrapper">
+                <table id="skater-table">
+                    <thead>
+                        <tr>
+                            <th class="col-name">Skater Name</th>
+                            <th class="col-coach">Coach</th>
+                            <th class="col-duration">Duration</th>
+                            <th class="col-timein">Time On</th>
+                            <th class="col-timeout">Time Off</th>
+                            <th class="col-remaining">Time Remaining</th>
+                        </tr>
+                    </thead>
+                    <tbody id="skater-tbody">
+                        <tr class="loading-row">
+                            <td colspan="6">
+                                <div class="loading-indicator">
+                                    <div class="loader-ring"></div>
+                                    <span>Loading session data...</span>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <footer>
+                <span>Auto-syncs every 60s</span>
+                <span class="footer-sep">|</span>
+                <span id="last-updated">Last updated: --</span>
+                <span class="footer-sep">|</span>
+                <span id="sheet-tab">Sheet: --</span>
+            </footer>
+        </main>
+    </div>
+
+    <div id="toast-container"></div>
+    <!-- SCROLLING TICKER -->
+    <div class="ticker-wrap">
+        <div class="ticker-label">❄️ Live</div>
+        <div class="ticker-track">
+            <span class="ticker-item">Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; </span><span class="ticker-item">Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; Check out your freestyle session time on your phone at <span>miamiicefreestyle.live</span> &nbsp;&nbsp;·&nbsp;&nbsp; </span>
+        </div>
+    </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
