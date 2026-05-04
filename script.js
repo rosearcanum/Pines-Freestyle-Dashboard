@@ -2,8 +2,8 @@
 //  ICE ARENA FREESTYLE DASHBOARD — script.js
 // =============================================
 
-const API_KEY          = 'AIzaSyBypFcSsyYeFzmIMsYSGuL22MU7Mvr-npc';
-const SPREADSHEET_ID   = '18kC_kfghnpjap9y5FXd79ikmzDIOdtNOgI89uWZ5uHo';
+const API_KEY          = 'AIzaSyDnXcYZ3kP3sm1fA9429CcduvRVOc7yNVo';
+const SPREADSHEET_ID   = '19LKhKBK6JUM6U30Bb_asmIHyyt53loDuI_ljnqwTPN0';
 const DATA_RANGE       = 'B3:F100';
 const REFRESH_MS       = 60 * 1000;
 const WARN_MINUTES     = 10;
