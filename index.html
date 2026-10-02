@@ -14,7 +14,6 @@
     <div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
     <div class="layout">
 
-        <!-- ---- SIDEBAR ---- -->
         <aside class="sidebar" id="sidebar">
             <div class="sidebar-header">
                 <img class="zamboni-icon" src="data:image/png;base64,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" alt="Zamboni">
@@ -44,12 +43,10 @@
             </div>
         </aside>
 
-        <!-- Mobile sidebar toggle -->
         <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebar()">
             🚧 Zamboni
         </button>
 
-        <!-- ---- MAIN ---- -->
         <main class="main">
             <header>
                 <div class="header-left">
@@ -133,7 +130,7 @@
     </div>
 
     <div id="toast-container"></div>
-    <!-- SCROLLING TICKER -->
+
     <div class="ticker-wrap">
         <div class="ticker-label">❄️ Live</div>
         <div class="ticker-track">
