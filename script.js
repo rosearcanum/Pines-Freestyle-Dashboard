@@ -1,6 +1,3 @@
-// =============================================
-//  ICE ARENA FREESTYLE DASHBOARD — script.js
-// =============================================
 
 const API_KEY          = 'AIzaSyDnXcYZ3kP3sm1fA9429CcduvRVOc7yNVo';
 const SPREADSHEET_ID   = '19LKhKBK6JUM6U30Bb_asmIHyyt53loDuI_ljnqwTPN0';
@@ -17,8 +14,6 @@ let tickInterval    = null;
 let allSkaterData   = [];
 let zamboniTimes    = [];
 
-// ---- DURATION DISPLAY ----
-// Normalizes whatever is in the Duration column to a friendly label
 function formatDuration(raw) {
     if (!raw || raw.trim() === '') return '—';
     const s = raw.trim().toLowerCase();
@@ -34,13 +29,11 @@ function formatDuration(raw) {
         s === 'non-member 60' || s === 'non member 60 min' ||
         s === 'non-member 60 min')                                               return 'Non-Member 60 min';
 
-    // Fallback: if it's a bare number, append " min"
     if (/^\d+$/.test(s)) return s + ' min';
 
     return raw.trim();
 }
 
-// ---- TOAST NOTIFICATIONS ----
 function showToast(message, duration = 10000) {
     const container = document.getElementById('toast-container');
     if (!container) return;
@@ -57,7 +50,6 @@ function showToast(message, duration = 10000) {
     }, duration);
 }
 
-// ---- MOBILE SIDEBAR ----
 function toggleSidebar() {
     const sidebar  = document.getElementById('sidebar');
     const btn      = document.getElementById('sidebar-toggle');
@@ -67,7 +59,6 @@ function toggleSidebar() {
     if (overlay) overlay.classList.toggle('show', isOpen);
 }
 
-// ---- MIDNIGHT RESET ----
 function scheduleMidnightReset() {
     const now      = new Date();
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 10);
@@ -79,7 +70,6 @@ function scheduleMidnightReset() {
     }, midnight - now);
 }
 
-// ---- TODAY'S SHEET TAB ----
 function getTodaySheetName() {
     const day = new Date().getDate();
     if (day === 1)  return '1st';
@@ -115,7 +105,6 @@ function getTodaySheetName() {
     if (day === 31) return '31st';
 }
 
-// ---- ZAMBONI LOGIC ----
 function getZamboniBonus(timeOnDate, timeOffDate) {
     if (!timeOnDate || !timeOffDate) return 0;
     let bonus = 0;
@@ -177,7 +166,6 @@ function renderZamboniList() {
     }).join('');
 }
 
-// ---- INIT ----
 window.addEventListener('load', () => {
     const input = document.getElementById('zamboni-input');
     if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter') addZamboni(); });
@@ -188,7 +176,6 @@ window.addEventListener('load', () => {
     scheduleMidnightReset();
 });
 
-// ---- CLOCK ----
 function startClock() {
     const tick = () => {
         const el = document.getElementById('live-clock');
@@ -198,7 +185,6 @@ function startClock() {
     setInterval(tick, 1000);
 }
 
-// ---- AUTO REFRESH (silent — no page reload) ----
 function startRefreshCycle() {
     nextRefreshSecs = REFRESH_MS / 1000;
     clearInterval(countdownTimer);
@@ -210,12 +196,11 @@ function startRefreshCycle() {
     }, 1000);
     clearInterval(refreshTimer);
     refreshTimer = setInterval(() => {
-        silentFetch(); // silent — no loading spinner, no flicker
+        silentFetch();
         nextRefreshSecs = REFRESH_MS / 1000;
     }, REFRESH_MS);
 }
 
-// ---- FETCH (initial load — shows spinner) ----
 async function fetchData() {
     setStatus('connecting');
     const sheetName = getTodaySheetName();
@@ -243,7 +228,6 @@ async function fetchData() {
     }
 }
 
-// ---- SILENT FETCH (auto-refresh — no spinner, no flicker) ----
 async function silentFetch() {
     const sheetName = getTodaySheetName();
     const range = encodeURIComponent(sheetName) + '!' + DATA_RANGE;
@@ -260,7 +244,6 @@ async function silentFetch() {
     }
 }
 
-// ---- PROCESS ROWS ----
 function processRows(rows) {
     const skaters = rows.filter(r => r && r[0] && r[0].trim() !== '');
     allSkaterData = skaters.map(row => {
@@ -276,7 +259,6 @@ function processRows(rows) {
     renderVisible();
 }
 
-// ---- RENDER ----
 function renderVisible() {
     const tbody = document.getElementById('skater-tbody');
     const now   = new Date();
@@ -333,7 +315,6 @@ function renderVisible() {
     startCountdownTick();
 }
 
-// ---- LIVE TICK ----
 function startCountdownTick() {
     clearInterval(tickInterval);
     tickInterval = setInterval(updateCountdowns, 1000);
@@ -342,7 +323,6 @@ function startCountdownTick() {
 function updateCountdowns() {
     const now = new Date();
 
-    // Check for newly active skaters
     const anyNew = allSkaterData.some(s => {
         const started = s.timeOnDate && s.timeOnDate <= now;
         const notOver = !s.timeOffDate || s.timeOffDate > now;
@@ -367,7 +347,6 @@ function updateCountdowns() {
         if (remainingMin <= WARN_MINUTES) urgentCount++;
     });
 
-    // Remove expired rows with fade + toast
     toRemove.forEach(row => {
         const name = row.dataset.name || 'A skater';
         row.style.transition = 'opacity 0.7s';
@@ -385,7 +364,6 @@ function updateCountdowns() {
     if (urgentEl) urgentEl.textContent = urgentCount;
 }
 
-// ---- URGENCY ----
 function getUrgency(remainingMin) {
     if (remainingMin === null) return { urgencyClass: '',        rowClass: '',           label: '—' };
     if (remainingMin <= 0)     return { urgencyClass: 'expired', rowClass: '',           label: 'TIME EXPIRED' };
@@ -395,7 +373,6 @@ function getUrgency(remainingMin) {
     return { urgencyClass: 'ok', rowClass: '', label: label };
 }
 
-// ---- TIME PARSING ----
 function parseTime(str) {
     if (!str || str.trim() === '') return null;
     str = str.trim();
@@ -414,7 +391,6 @@ function parseTime(str) {
     return null;
 }
 
-// ---- FORMATTING ----
 function formatTime12(date) {
     let h = date.getHours();
     const m  = String(date.getMinutes()).padStart(2, '0');
@@ -441,7 +417,6 @@ function formatCountdown(minutes) {
     return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
 }
 
-// ---- STATUS ----
 function setStatus(state) {
     const dot  = document.getElementById('status-dot');
     const text = document.getElementById('status-text');
