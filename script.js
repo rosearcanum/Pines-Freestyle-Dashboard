@@ -2,19 +2,49 @@
 const API_KEY          = 'AIzaSyDnXcYZ3kP3sm1fA9429CcduvRVOc7yNVo';
 const SPREADSHEET_ID   = '19LKhKBK6JUM6U30Bb_asmIHyyt53loDuI_ljnqwTPN0';
 const DATA_RANGE       = 'B3:F100';
-const REFRESH_MS       = 60 * 1000;
-const WARN_MINUTES     = 10;
-const URGENT_MINUTES   = 5;
-const ZAMBONI_DURATION = 10;
 const ZAMBONI_RANGE    = 'P3:P50';   // Zamboni start times on each day's tab (header in P2)
+const REFRESH_MS       = 60 * 1000;
+const WARN_MINUTES     = 10;         // "Leaving soon" group, gold
+const URGENT_MINUTES   = 5;          // red
+const ZAMBONI_DURATION = 10;
+const SCROLL_SECONDS_PER_ROW = 4;    // TV auto-scroll speed (bigger = slower)
+const ZAMBONI_TV_MAX   = 5;          // cleanings shown at once on the TV timeline
+const TV_QUERY         = '(min-width: 1200px)';
+const THEME_KEY        = 'freestyle-theme';
 
-let refreshTimer    = null;
-let countdownTimer  = null;
-let nextRefreshSecs = REFRESH_MS / 1000;
-let tickInterval    = null;
 let allSkaterData   = [];
 let zamboniTimes    = [];
+let lastSignature   = '';
 let lastZamboniHtml = '';
+let renderedKeys    = new Map();   // skater key -> effective time off (ms)
+let toastedKeys     = new Set();
+let exitPending     = false;
+let scrollStartedAt = 0;
+let scrollDuration  = 0;
+
+const $ = id => document.getElementById(id);
+
+/* ===== Theme ===== */
+
+function currentTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+}
+
+function applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const btn = $('theme-toggle');
+    if (btn) btn.setAttribute('aria-label', theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', theme === 'dark' ? '#0F1720' : '#A8D8EA');
+}
+
+function toggleTheme() {
+    const next = currentTheme() === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    try { localStorage.setItem(THEME_KEY, next); } catch (e) {}
+}
+
+/* ===== Formatting ===== */
 
 function formatDuration(raw) {
     if (!raw || raw.trim() === '') return '—';
@@ -36,8 +66,63 @@ function formatDuration(raw) {
     return raw.trim();
 }
 
+function formatCoach(raw) {
+    const c = (raw || '').trim();
+    if (!c || c === '—' || c === '-') return '';
+    return /^coach\b/i.test(c) ? c : 'Coach ' + c;
+}
+
+function formatTimeStr12(date) {
+    let h = date.getHours();
+    const m  = String(date.getMinutes()).padStart(2, '0');
+    const ap = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return h + ':' + m + ' ' + ap;
+}
+
+function formatTimeStr(str) { return (!str || str.trim() === '') ? '—' : str.trim(); }
+
+function formatSpan(s) {
+    if (!s.timeOnDate || !s.timeOffDate) return formatTimeStr(s.timeOn);
+    const a = formatTimeStr12(s.timeOnDate);
+    const b = formatTimeStr12(s.timeOffDate);
+    if (a.slice(-2) === b.slice(-2)) return a.slice(0, -3) + ' to ' + b;
+    return a + ' to ' + b;
+}
+
+function formatCountdown(minutes) {
+    const totalSecs = Math.max(0, Math.floor(minutes * 60));
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+function escHtml(str) {
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function parseTime(str) {
+    if (!str || str.trim() === '') return null;
+    str = str.trim();
+    const now = new Date();
+    const m12 = str.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(AM|PM)$/i);
+    if (m12) {
+        let h = parseInt(m12[1]);
+        const m = m12[2] ? parseInt(m12[2]) : 0;
+        const ap = m12[3].toUpperCase();
+        if (ap === 'PM' && h !== 12) h += 12;
+        if (ap === 'AM' && h === 12) h = 0;
+        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+    }
+    const m24 = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (m24) return new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(m24[1]), parseInt(m24[2]), 0, 0);
+    return null;
+}
+
+/* ===== Toasts ===== */
+
 function showToast(message, duration = 10000) {
-    const container = document.getElementById('toast-container');
+    const container = $('toast-container');
     if (!container) return;
     const toast = document.createElement('div');
     toast.className = 'toast';
@@ -52,17 +137,7 @@ function showToast(message, duration = 10000) {
     }, duration);
 }
 
-function scheduleMidnightReset() {
-    const now      = new Date();
-    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 10);
-    setTimeout(() => {
-        zamboniTimes  = [];
-        allSkaterData = [];
-        renderZamboniList();
-        fetchData();
-        scheduleMidnightReset();
-    }, midnight - now);
-}
+/* ===== Sheet ===== */
 
 function getTodaySheetName() {
     const day = new Date().getDate();
@@ -99,88 +174,6 @@ function getTodaySheetName() {
     if (day === 31) return '31st';
 }
 
-function getZamboniBonus(timeOnDate, timeOffDate) {
-    if (!timeOnDate || !timeOffDate) return 0;
-    let bonus = 0;
-    zamboniTimes.forEach(zStart => {
-        const zEnd = new Date(zStart.getTime() + ZAMBONI_DURATION * 60000);
-        if (zStart < timeOffDate && zEnd > timeOnDate) bonus += ZAMBONI_DURATION;
-    });
-    return bonus;
-}
-
-function processZamboni(rows) {
-    const seen  = {};
-    const times = [];
-    rows.forEach(r => {
-        const t = parseTime(r && r[0] != null ? String(r[0]) : '');
-        if (t && !seen[t.getTime()]) { seen[t.getTime()] = true; times.push(t); }
-    });
-    zamboniTimes = times.sort((a, b) => a - b);
-    renderZamboniList();
-}
-
-function renderZamboniList() {
-    const list    = document.getElementById('zamboni-list');
-    const countEl = document.getElementById('zamboni-count');
-    if (countEl) countEl.textContent = zamboniTimes.length;
-    if (!list) return;
-
-    const now = new Date();
-    let html;
-    if (zamboniTimes.length === 0) {
-        html = '<li class="zamboni-empty">No cleanings logged yet</li>';
-    } else {
-        html = zamboniTimes.map(z => {
-            const zEnd  = new Date(z.getTime() + ZAMBONI_DURATION * 60000);
-            const state = now >= zEnd ? 'done' : (now >= z ? 'now' : 'upcoming');
-            const note  = state === 'now' ? 'Cleaning now' : (state === 'done' ? 'Done' : 'until ' + formatTimeStr12(zEnd));
-            return '<li class="zamboni-item is-' + state + '">' +
-                '<span class="zamboni-time">' + formatTimeStr12(z) + '</span>' +
-                '<span class="zamboni-window">' + note + '</span>' +
-                '</li>';
-        }).join('');
-    }
-    if (html !== lastZamboniHtml) {
-        list.innerHTML  = html;
-        lastZamboniHtml = html;
-    }
-}
-
-window.addEventListener('load', () => {
-    startClock();
-    fetchData();
-    startRefreshCycle();
-    renderZamboniList();
-    scheduleMidnightReset();
-});
-
-function startClock() {
-    const tick = () => {
-        const el = document.getElementById('live-clock');
-        if (el) el.textContent = formatTime12(new Date());
-        renderZamboniList();   // keeps "Cleaning now" / "Done" current even when the rink is empty
-    };
-    tick();
-    setInterval(tick, 1000);
-}
-
-function startRefreshCycle() {
-    nextRefreshSecs = REFRESH_MS / 1000;
-    clearInterval(countdownTimer);
-    countdownTimer = setInterval(() => {
-        nextRefreshSecs--;
-        const el = document.getElementById('stat-refresh');
-        if (el) el.textContent = nextRefreshSecs > 0 ? nextRefreshSecs + 's' : '...';
-        if (nextRefreshSecs <= 0) nextRefreshSecs = REFRESH_MS / 1000;
-    }, 1000);
-    clearInterval(refreshTimer);
-    refreshTimer = setInterval(() => {
-        silentFetch();
-        nextRefreshSecs = REFRESH_MS / 1000;
-    }, REFRESH_MS);
-}
-
 function buildSheetUrl(sheetName) {
     const tab = encodeURIComponent(sheetName);
     return 'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID + '/values:batchGet' +
@@ -198,20 +191,16 @@ function applySheetData(data) {
 async function fetchData() {
     setStatus('connecting');
     const sheetName = getTodaySheetName();
-    const tabEl = document.getElementById('sheet-tab');
-    if (tabEl) tabEl.textContent = 'Sheet: ' + sheetName;
-    const url = buildSheetUrl(sheetName);
     try {
-        const res = await fetch(url);
+        const res = await fetch(buildSheetUrl(sheetName));
         if (!res.ok) {
-            const err = await res.json();
+            const err = await res.json().catch(() => null);
             if (err && err.error && (err.error.code === 400 || err.error.code === 404)) {
-                throw new Error('No sheet tab found for today ("' + sheetName + '"). Create it in Google Sheets to get started.');
+                throw new Error('There is no tab for today ("' + sheetName + '") in the sheet yet. Add it to get started.');
             }
-            throw new Error((err && err.error && err.error.message) || 'HTTP ' + res.status);
+            throw new Error((err && err.error && err.error.message) || 'The sheet could not be reached (HTTP ' + res.status + ').');
         }
-        const data = await res.json();
-        applySheetData(data);
+        applySheetData(await res.json());
         setStatus('live');
         updateLastRefreshed();
     } catch (e) {
@@ -222,13 +211,10 @@ async function fetchData() {
 }
 
 async function silentFetch() {
-    const sheetName = getTodaySheetName();
-    const url = buildSheetUrl(sheetName);
     try {
-        const res = await fetch(url);
+        const res = await fetch(buildSheetUrl(getTodaySheetName()));
         if (!res.ok) return;
-        const data = await res.json();
-        applySheetData(data);
+        applySheetData(await res.json());
         setStatus('live');
         updateLastRefreshed();
     } catch (e) {
@@ -239,16 +225,37 @@ async function silentFetch() {
 function processRows(rows) {
     const skaters = rows.filter(r => r && r[0] && r[0].trim() !== '');
     allSkaterData = skaters.map(row => {
-        const name      = row[0] || '—';
-        const duration  = row[1] || '—';
-        const timeOn    = row[2] || '';
-        const timeOff   = row[3] || '';
-        const coach     = row[4] || '—';
-        const timeOnDate  = parseTime(timeOn);
-        const timeOffDate = parseTime(timeOff);
-        return { name, duration, timeOn, timeOff, coach, timeOnDate, timeOffDate };
+        const name     = row[0] || '—';
+        const duration = row[1] || '—';
+        const timeOn   = row[2] || '';
+        const timeOff  = row[3] || '';
+        const coach    = row[4] || '';
+        return { name, duration, timeOn, timeOff, coach, timeOnDate: parseTime(timeOn), timeOffDate: parseTime(timeOff) };
     });
-    renderVisible();
+    renderVisible(true);
+}
+
+function processZamboni(rows) {
+    const seen  = {};
+    const times = [];
+    rows.forEach(r => {
+        const t = parseTime(r && r[0] != null ? String(r[0]) : '');
+        if (t && !seen[t.getTime()]) { seen[t.getTime()] = true; times.push(t); }
+    });
+    zamboniTimes = times.sort((a, b) => a - b);
+    renderZamboni();
+}
+
+/* ===== Zamboni bonus ===== */
+
+function getZamboniBonus(timeOnDate, timeOffDate) {
+    if (!timeOnDate || !timeOffDate) return 0;
+    let bonus = 0;
+    zamboniTimes.forEach(zStart => {
+        const zEnd = new Date(zStart.getTime() + ZAMBONI_DURATION * 60000);
+        if (zStart < timeOffDate && zEnd > timeOnDate) bonus += ZAMBONI_DURATION;
+    });
+    return bonus;
 }
 
 function withZamboni(s) {
@@ -263,184 +270,352 @@ function isOnIce(s, now) {
     return started && notOver;
 }
 
-function renderVisible() {
-    const tbody = document.getElementById('skater-tbody');
-    const now   = new Date();
+/* ===== Skater list ===== */
 
-    let visible = allSkaterData.map(withZamboni).filter(s => isOnIce(s, now));
+function skaterKey(s) { return s.name + '|' + s.timeOn + '|' + s.timeOff; }
 
-    if (visible.length === 0) {
-        tbody.innerHTML = '<tr class="empty-row"><td colspan="6"><div class="empty-msg">No skaters currently on ice</div></td></tr>';
-        updateStats(0, 0);
-        updateAffectedCount(0);
+function minutesLeft(s, now) { return s.effectiveTimeOff ? (s.effectiveTimeOff - now) / 60000 : null; }
+
+function isSoon(s, now) {
+    const left = minutesLeft(s, now);
+    return left !== null && left <= WARN_MINUTES;
+}
+
+function urgencyClass(left) {
+    if (left === null) return '';
+    if (left <= URGENT_MINUTES) return 'is-urgent';
+    if (left <= WARN_MINUTES) return 'is-warn';
+    return '';
+}
+
+function percentLeft(s, now) {
+    if (!s.timeOnDate || !s.effectiveTimeOff) return 100;
+    const total = s.effectiveTimeOff - s.timeOnDate;
+    if (total <= 0) return 0;
+    return Math.max(0, Math.min(100, ((s.effectiveTimeOff - now) / total) * 100));
+}
+
+function getVisible(now) {
+    return allSkaterData
+        .map(withZamboni)
+        .filter(s => isOnIce(s, now))
+        .sort((a, b) => {
+            if (a.effectiveTimeOff && b.effectiveTimeOff) return a.effectiveTimeOff - b.effectiveTimeOff;
+            if (a.effectiveTimeOff) return -1;
+            if (b.effectiveTimeOff) return 1;
+            return 0;
+        });
+}
+
+function signatureOf(visible, now) {
+    return visible.map(s =>
+        skaterKey(s) + '@' + (s.effectiveTimeOff ? s.effectiveTimeOff.getTime() : '') +
+        ':' + (isSoon(s, now) ? 's' : 'i') + ':' + s.coach + ':' + s.duration
+    ).join('|');
+}
+
+function rowHtml(s, now) {
+    const left    = minutesLeft(s, now);
+    const plus    = s.bonus > 0 ? '<span class="plus">+' + s.bonus + '</span>' : '';
+    const coach   = formatCoach(s.coach);
+    const offText = s.effectiveTimeOff ? formatTimeStr12(s.effectiveTimeOff) : formatTimeStr(s.timeOff);
+    const label   = left === null ? '—' : formatCountdown(left);
+    return '<div class="row ' + urgencyClass(left) + '"' +
+        ' data-key="' + escHtml(skaterKey(s)) + '"' +
+        ' data-timeon="' + (s.timeOnDate ? s.timeOnDate.getTime() : '') + '"' +
+        ' data-timeout="' + (s.effectiveTimeOff ? s.effectiveTimeOff.getTime() : '') + '">' +
+        '<div class="row-main">' +
+            '<div class="cell-name">' +
+                '<span class="name">' + escHtml(s.name) + '</span>' +
+                (coach ? '<span class="coach">' + escHtml(coach) + '</span>' : '') +
+                '<span class="meta-mobile">Off ' + escHtml(offText) + (plus ? ' ' + plus : '') + '</span>' +
+            '</div>' +
+            '<div class="cell-session">' +
+                '<span class="dur">' + escHtml(formatDuration(s.duration)) + '</span>' +
+                '<span class="span">' + escHtml(formatSpan(s)) + '</span>' +
+            '</div>' +
+            '<div class="cell-off"><span class="off">' + escHtml(offText) + '</span>' + plus + '</div>' +
+            '<div class="countdown">' + label + '</div>' +
+        '</div>' +
+        '<div class="bar"><div class="bar-fill" style="width:' + percentLeft(s, now).toFixed(2) + '%"></div></div>' +
+    '</div>';
+}
+
+function renderVisible(force) {
+    const now     = new Date();
+    const visible = getVisible(now);
+    const sig     = signatureOf(visible, now);
+
+    updateStats(visible, now);
+    updateAffected(now);
+
+    if (!force && sig === lastSignature) { tickRows(now); return; }
+    lastSignature = sig;
+    renderedKeys  = new Map(visible.map(s => [skaterKey(s), s.effectiveTimeOff ? s.effectiveTimeOff.getTime() : null]));
+
+    const soon = visible.filter(s => isSoon(s, now));
+    const ice  = visible.filter(s => !isSoon(s, now));
+
+    $('empty-msg').hidden = visible.length > 0;
+    if (visible.length === 0) $('empty-msg').textContent = 'No skaters on the ice right now';
+
+    $('group-soon').hidden = soon.length === 0;
+    $('soon-list').innerHTML = soon.map(s => rowHtml(s, now)).join('');
+
+    $('group-ice').hidden = ice.length === 0;
+    const iceHtml = ice.map(s => rowHtml(s, now)).join('');
+    $('ice-list').innerHTML = iceHtml;
+    $('ice-list-copy').innerHTML = iceHtml;
+
+    updateAutoScroll();
+}
+
+function tickRows(now) {
+    document.querySelectorAll('.row[data-timeout]').forEach(row => {
+        const eff = Number(row.dataset.timeout);
+        if (!eff) return;
+        const on   = Number(row.dataset.timeon);
+        const left = (eff - now.getTime()) / 60000;
+        const cd = row.querySelector('.countdown');
+        if (cd) cd.textContent = formatCountdown(left);
+        row.classList.toggle('is-urgent', left <= URGENT_MINUTES);
+        row.classList.toggle('is-warn', left > URGENT_MINUTES && left <= WARN_MINUTES);
+        const fill = row.querySelector('.bar-fill');
+        if (fill && on && eff > on) {
+            const pct = Math.max(0, Math.min(100, ((eff - now.getTime()) / (eff - on)) * 100));
+            fill.style.width = pct.toFixed(2) + '%';
+        }
+    });
+}
+
+function checkExpired(now) {
+    let anyExpired = false;
+    renderedKeys.forEach((eff, key) => {
+        if (eff && eff <= now.getTime() && !toastedKeys.has(key)) {
+            toastedKeys.add(key);
+            anyExpired = true;
+            document.querySelectorAll('.row').forEach(r => { if (r.dataset.key === key) r.classList.add('is-leaving'); });
+            showToast(key.split('|')[0] + "'s time has run out", 10000);
+        }
+    });
+    if (anyExpired) {
+        exitPending = true;
+        setTimeout(() => { exitPending = false; renderVisible(true); }, 700);
+    }
+}
+
+/* ===== TV auto-scroll ===== */
+
+function updateAutoScroll() {
+    const scroller = $('scroller');
+    const track    = $('scroll-track');
+    const list     = $('ice-list');
+    const copy     = $('ice-list-copy');
+    const isTV     = window.matchMedia(TV_QUERY).matches;
+    const rows     = list.children.length;
+
+    copy.hidden = true;
+    const wasScrolling = scroller.classList.contains('is-scrolling');
+    scroller.classList.remove('is-scrolling');
+
+    const overflows = isTV && rows > 0 && list.scrollHeight > scroller.clientHeight + 2;
+    if (!overflows) {
+        scrollDuration = 0;
+        track.style.animationDuration = '';
+        track.style.animationDelay = '';
         return;
     }
 
-    visible.sort((a, b) => {
-        if (a.effectiveTimeOff && b.effectiveTimeOff) return a.effectiveTimeOff - b.effectiveTimeOff;
-        if (a.effectiveTimeOff) return -1;
-        if (b.effectiveTimeOff) return 1;
-        return 0;
-    });
-
-    const urgentCount   = visible.filter(s => s.effectiveTimeOff && (s.effectiveTimeOff - now) / 60000 <= WARN_MINUTES).length;
-    const affectedCount = visible.filter(s => s.bonus > 0).length;
-    updateStats(visible.length, urgentCount);
-    updateAffectedCount(affectedCount);
-
-    tbody.innerHTML = visible.map((s, i) => {
-        const remainingMin = s.effectiveTimeOff ? (s.effectiveTimeOff - now) / 60000 : null;
-        const urg = getUrgency(remainingMin);
-        const badge = s.bonus > 0 ? '<span class="zamboni-badge">+' + s.bonus + 'm 🚧</span>' : '';
-        const timeOffDisplay = s.effectiveTimeOff ? formatTimeStr12(s.effectiveTimeOff) : formatTimeStr(s.timeOff);
-        return '<tr class="' + urg.rowClass + '" style="animation-delay:' + (i * 0.05) + 's"' +
-            ' data-timeout="' + (s.effectiveTimeOff ? s.effectiveTimeOff.getTime() : '') + '"' +
-            ' data-timeon="' + (s.timeOnDate ? s.timeOnDate.getTime() : '') + '"' +
-            ' data-name="' + escHtml(s.name) + '">' +
-            '<td class="td-name">' + escHtml(s.name) + badge + '</td>' +
-            '<td class="td-coach">' + escHtml(s.coach) + '</td>' +
-            '<td class="td-duration">' + formatDuration(s.duration) + '</td>' +
-            '<td class="td-time">' + formatTimeStr(s.timeOn) + '</td>' +
-            '<td class="td-timeout">' + timeOffDisplay + '</td>' +
-            '<td class="td-remaining ' + urg.urgencyClass + '" data-timeout="' + (s.effectiveTimeOff ? s.effectiveTimeOff.getTime() : '') + '">' + urg.label + '</td>' +
-            '</tr>';
-    }).join('');
-
-    startCountdownTick();
-}
-
-function startCountdownTick() {
-    clearInterval(tickInterval);
-    tickInterval = setInterval(updateCountdowns, 1000);
-}
-
-function updateCountdowns() {
-    const now = new Date();
-
-    const anyNew = allSkaterData.map(withZamboni).some(s => {
-        const inTable = document.querySelector('#skater-tbody tr[data-timeon="' + (s.timeOnDate ? s.timeOnDate.getTime() : '') + '"]');
-        return isOnIce(s, now) && !inTable;
-    });
-    if (anyNew) { renderVisible(); return; }
-
-    const rows = document.querySelectorAll('#skater-tbody tr[data-timeout]');
-    let urgentCount = 0;
-    let toRemove = [];
-
-    rows.forEach(row => {
-        const ts = parseInt(row.dataset.timeout);
-        if (!ts) return;
-        const remainingMin = (ts - now.getTime()) / 60000;
-        if (remainingMin <= 0) { toRemove.push(row); return; }
-        const urg = getUrgency(remainingMin);
-        const cell = row.querySelector('.td-remaining');
-        if (cell) { cell.textContent = urg.label; cell.className = 'td-remaining ' + urg.urgencyClass; }
-        row.className = urg.rowClass;
-        if (remainingMin <= WARN_MINUTES) urgentCount++;
-    });
-
-    toRemove.forEach(row => {
-        const name = row.dataset.name || 'A skater';
-        row.style.transition = 'opacity 0.7s';
-        row.style.opacity = '0';
-        setTimeout(() => {
-            row.remove();
-            showToast('⏰ ' + name + "'s time has run out", 10000);
-        }, 700);
-    });
-
-    const remaining = rows.length - toRemove.length;
-    const totalEl  = document.getElementById('stat-total');
-    const urgentEl = document.getElementById('stat-urgent');
-    if (totalEl)  totalEl.textContent = Math.max(0, remaining);
-    if (urgentEl) urgentEl.textContent = urgentCount;
-}
-
-function getUrgency(remainingMin) {
-    if (remainingMin === null) return { urgencyClass: '',        rowClass: '',           label: '—' };
-    if (remainingMin <= 0)     return { urgencyClass: 'expired', rowClass: '',           label: 'TIME EXPIRED' };
-    const label = formatCountdown(remainingMin);
-    if (remainingMin <= URGENT_MINUTES) return { urgencyClass: 'urgent',  rowClass: 'row-urgent',  label: label };
-    if (remainingMin <= WARN_MINUTES)   return { urgencyClass: 'warning', rowClass: 'row-warning', label: label };
-    return { urgencyClass: 'ok', rowClass: '', label: label };
-}
-
-function parseTime(str) {
-    if (!str || str.trim() === '') return null;
-    str = str.trim();
-    const now = new Date();
-    const m12 = str.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(AM|PM)$/i);
-    if (m12) {
-        let h = parseInt(m12[1]);
-        const m = m12[2] ? parseInt(m12[2]) : 0;
-        const ap = m12[3].toUpperCase();
-        if (ap === 'PM' && h !== 12) h += 12;
-        if (ap === 'AM' && h === 12) h = 0;
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
+    // Keep the scroll position when the list is re-rendered, instead of jumping back to the top
+    let progress = 0;
+    if (wasScrolling && scrollDuration > 0) {
+        progress = (((performance.now() - scrollStartedAt) / 1000) % scrollDuration) / scrollDuration;
     }
-    const m24 = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
-    if (m24) return new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(m24[1]), parseInt(m24[2]), 0, 0);
-    return null;
+    scrollDuration  = rows * SCROLL_SECONDS_PER_ROW;
+    scrollStartedAt = performance.now() - progress * scrollDuration * 1000;
+
+    copy.hidden = false;
+    track.style.animationDuration = scrollDuration + 's';
+    track.style.animationDelay = (-progress * scrollDuration).toFixed(2) + 's';
+    track.style.animationName = 'none';
+    void track.offsetHeight;
+    track.style.animationName = '';
+    scroller.classList.add('is-scrolling');
 }
 
-function formatTime12(date) {
-    let h = date.getHours();
-    const m  = String(date.getMinutes()).padStart(2, '0');
-    const s  = String(date.getSeconds()).padStart(2, '0');
+/* ===== Zamboni panel ===== */
+
+function zamboniItems(now) {
+    return zamboniTimes.map(start => {
+        const end   = new Date(start.getTime() + ZAMBONI_DURATION * 60000);
+        const state = now >= end ? 'done' : (now >= start ? 'now' : 'next');
+        return { start, end, state };
+    });
+}
+
+function renderZamboni() {
+    const now   = new Date();
+    const items = zamboniItems(now);
+
+    // TV timeline: keep it to a few entries, centred on what is happening now
+    let html;
+    if (items.length === 0) {
+        html = '<li class="z-empty">No cleanings logged yet</li>';
+    } else {
+        const firstActive = items.findIndex(i => i.state !== 'done');
+        const anchor = firstActive === -1 ? items.length : firstActive;
+        const start  = Math.max(0, Math.min(anchor - 1, items.length - ZAMBONI_TV_MAX));
+        const shown  = items.slice(start, start + ZAMBONI_TV_MAX);
+        const later  = items.length - (start + shown.length);
+        html = (start > 0 ? '<li class="z-more">' + start + ' earlier</li>' : '') +
+            shown.map(i => {
+                const note = i.state === 'done' ? 'Done' : (i.state === 'now' ? 'Cleaning now' : 'Until ' + formatTimeStr12(i.end));
+                return '<li class="z-item is-' + i.state + '"><span class="z-dot"></span>' +
+                    '<span class="z-body"><span class="z-time">' + formatTimeStr12(i.start) + '</span>' +
+                    '<span class="z-note">' + note + '</span></span></li>';
+            }).join('') +
+            (later > 0 ? '<li class="z-more">' + later + ' later</li>' : '');
+    }
+    const list = $('zamboni-list');
+    if (list && html !== lastZamboniHtml) {
+        list.innerHTML = html;
+        list.classList.toggle('is-empty', items.length === 0);
+        lastZamboniHtml = html;
+    }
+
+    // Phone summary
+    const statusEl  = $('zamboni-status');
+    const summaryEl = $('zamboni-summary');
+    const current   = items.find(i => i.state === 'now');
+    const next      = items.find(i => i.state === 'next');
+    const done      = items.filter(i => i.state === 'done');
+    let status = '', quiet = false, summary;
+    if (items.length === 0) {
+        summary = 'No cleanings logged yet.';
+    } else if (current) {
+        status  = 'Cleaning now';
+        summary = 'Until ' + formatTimeStr12(current.end) + '.' + (next ? ' Next at ' + formatTimeStr12(next.start) + '.' : '');
+    } else if (next) {
+        status  = 'Next at ' + formatTimeStr12(next.start);
+        quiet   = true;
+        summary = 'Next cleaning ' + formatTimeStr12(next.start) + ' to ' + formatTimeStr12(next.end) + '.';
+    } else {
+        status  = 'Done for now';
+        quiet   = true;
+        summary = 'Last cleaning was at ' + formatTimeStr12(done[done.length - 1].start) + '.';
+    }
+    if (statusEl) {
+        statusEl.hidden = !status;
+        if (statusEl.textContent !== status) statusEl.textContent = status;
+        statusEl.classList.toggle('is-quiet', quiet);
+    }
+    if (summaryEl && summaryEl.textContent !== summary) summaryEl.textContent = summary;
+}
+
+function updateAffected(now) {
+    const el = $('zamboni-affected');
+    if (!el) return;
+    if (zamboniTimes.length === 0) { el.textContent = ''; return; }
+    const n = allSkaterData.map(withZamboni).filter(s => s.bonus > 0 && s.timeOnDate && s.timeOnDate <= now).length;
+    const text = n === 0 ? 'No skaters affected yet' : n + (n === 1 ? ' skater' : ' skaters') + ' got +10 min today';
+    if (el.textContent !== text) el.textContent = text;
+}
+
+/* ===== Header bits ===== */
+
+function updateClock(now) {
+    let h = now.getHours();
+    const m = String(now.getMinutes()).padStart(2, '0');
     const ap = h >= 12 ? 'PM' : 'AM';
     h = h % 12 || 12;
-    return h + ':' + m + ':' + s + ' ' + ap;
+    const t = $('clock-time'), a = $('clock-ampm');
+    if (t && t.textContent !== h + ':' + m) t.textContent = h + ':' + m;
+    if (a && a.textContent !== ap) a.textContent = ap;
 }
 
-function formatTimeStr12(date) {
-    let h = date.getHours();
-    const m  = String(date.getMinutes()).padStart(2, '0');
-    const ap = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return h + ':' + m + ' ' + ap;
-}
-
-function formatTimeStr(str) { return (!str || str.trim() === '') ? '—' : str.trim(); }
-
-function formatCountdown(minutes) {
-    const totalSecs = Math.floor(minutes * 60);
-    const m = Math.floor(totalSecs / 60);
-    const s = totalSecs % 60;
-    return String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+function updateStats(visible, now) {
+    const t = $('stat-total'), u = $('stat-urgent');
+    if (t) t.textContent = visible.length;
+    if (u) u.textContent = visible.filter(s => isSoon(s, now)).length;
 }
 
 function setStatus(state) {
-    const dot  = document.getElementById('status-dot');
-    const text = document.getElementById('status-text');
+    const dot = $('status-dot'), text = $('status-text'), detail = $('live-detail');
     if (!dot || !text) return;
     dot.className = 'status-dot';
-    if (state === 'live')       { dot.classList.add('live');  text.textContent = 'Live'; }
-    else if (state === 'error') { dot.classList.add('error'); text.textContent = 'Error'; }
-    else                        { text.textContent = 'Connecting...'; }
+    if (state === 'live') {
+        dot.classList.add('live');
+        text.textContent = 'Live';
+        if (detail) detail.textContent = ', updates every minute';
+    } else if (state === 'error') {
+        dot.classList.add('error');
+        text.textContent = "Can't reach the sheet";
+        if (detail) detail.textContent = '';
+    } else {
+        text.textContent = 'Connecting';
+        if (detail) detail.textContent = '';
+    }
 }
 
 function showError(msg) {
-    const tbody = document.getElementById('skater-tbody');
-    if (tbody) tbody.innerHTML = '<tr class="empty-row"><td colspan="6"><div class="empty-msg">' + escHtml(msg) + '</div></td></tr>';
-}
-
-function updateStats(total, urgent) {
-    const t = document.getElementById('stat-total');
-    const u = document.getElementById('stat-urgent');
-    if (t) t.textContent = total;
-    if (u) u.textContent = urgent;
-}
-
-function updateAffectedCount(count) {
-    const el = document.getElementById('zamboni-affected');
-    if (el) el.textContent = count;
+    allSkaterData = [];
+    lastSignature = '';
+    renderedKeys  = new Map();
+    $('group-soon').hidden = true;
+    $('group-ice').hidden = true;
+    $('empty-msg').hidden = false;
+    $('empty-msg').textContent = msg;
+    updateStats([], new Date());
 }
 
 function updateLastRefreshed() {
-    const el = document.getElementById('last-updated');
-    if (el) el.textContent = 'Last updated: ' + formatTime12(new Date());
+    const el = $('last-updated');
+    if (el) el.textContent = 'Last updated ' + formatTimeStr12(new Date()) + '.';
 }
 
-function escHtml(str) {
-    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+/* ===== Timers ===== */
+
+function tick() {
+    const now = new Date();
+    updateClock(now);
+    renderZamboni();
+    checkExpired(now);
+    if (exitPending) tickRows(now);
+    else renderVisible(false);
 }
+
+function scheduleMidnightReset() {
+    const now      = new Date();
+    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 10);
+    setTimeout(() => {
+        zamboniTimes  = [];
+        allSkaterData = [];
+        toastedKeys   = new Set();
+        renderZamboni();
+        fetchData();
+        scheduleMidnightReset();
+    }, midnight - now);
+}
+
+window.addEventListener('load', () => {
+    applyTheme(currentTheme());
+    $('theme-toggle').addEventListener('click', toggleTheme);
+    $('refresh-btn').addEventListener('click', () => {
+        const btn = $('refresh-btn');
+        btn.classList.remove('spinning'); void btn.offsetWidth; btn.classList.add('spinning');
+        fetchData();
+    });
+
+    let resizeTimer = null;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(updateAutoScroll, 200);
+    });
+
+    updateClock(new Date());
+    renderZamboni();
+    fetchData();
+    setInterval(silentFetch, REFRESH_MS);
+    setInterval(tick, 1000);
+    scheduleMidnightReset();
+});
