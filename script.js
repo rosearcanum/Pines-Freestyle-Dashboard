@@ -6,6 +6,7 @@ const REFRESH_MS       = 60 * 1000;
 const WARN_MINUTES     = 10;
 const URGENT_MINUTES   = 5;
 const ZAMBONI_DURATION = 10;
+const ZAMBONI_RANGE    = 'P3:P50';   // Zamboni start times on each day's tab (header in P2)
 
 let refreshTimer    = null;
 let countdownTimer  = null;
@@ -13,6 +14,7 @@ let nextRefreshSecs = REFRESH_MS / 1000;
 let tickInterval    = null;
 let allSkaterData   = [];
 let zamboniTimes    = [];
+let lastZamboniHtml = '';
 
 function formatDuration(raw) {
     if (!raw || raw.trim() === '') return '—';
@@ -50,20 +52,12 @@ function showToast(message, duration = 10000) {
     }, duration);
 }
 
-function toggleSidebar() {
-    const sidebar  = document.getElementById('sidebar');
-    const btn      = document.getElementById('sidebar-toggle');
-    const overlay  = document.getElementById('sidebar-overlay');
-    const isOpen   = sidebar.classList.toggle('open');
-    btn.textContent = isOpen ? '✕ Close' : '🚧 Zamboni Log';
-    if (overlay) overlay.classList.toggle('show', isOpen);
-}
-
 function scheduleMidnightReset() {
     const now      = new Date();
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 10);
     setTimeout(() => {
-        zamboniTimes = [];
+        zamboniTimes  = [];
+        allSkaterData = [];
         renderZamboniList();
         fetchData();
         scheduleMidnightReset();
@@ -115,60 +109,45 @@ function getZamboniBonus(timeOnDate, timeOffDate) {
     return bonus;
 }
 
-function addZamboni() {
-    const input   = document.getElementById('zamboni-input');
-    const errorEl = document.getElementById('zamboni-error');
-    errorEl.textContent = '';
-    const parsed = parseTime(input.value.trim());
-    if (!parsed) { errorEl.textContent = 'Invalid time. Try "3:00 PM" or "15:00"'; return; }
-    if (zamboniTimes.some(z => z.getTime() === parsed.getTime())) {
-        errorEl.textContent = 'That time is already logged.'; return;
-    }
-    zamboniTimes.push(parsed);
-    zamboniTimes.sort((a, b) => a - b);
-    input.value = '';
+function processZamboni(rows) {
+    const seen  = {};
+    const times = [];
+    rows.forEach(r => {
+        const t = parseTime(r && r[0] != null ? String(r[0]) : '');
+        if (t && !seen[t.getTime()]) { seen[t.getTime()] = true; times.push(t); }
+    });
+    zamboniTimes = times.sort((a, b) => a - b);
     renderZamboniList();
-    renderVisible();
-}
-
-function removeZamboni(index) {
-    zamboniTimes.splice(index, 1);
-    renderZamboniList();
-    renderVisible();
-}
-
-function clearAllZamboni() {
-    zamboniTimes = [];
-    renderZamboniList();
-    renderVisible();
 }
 
 function renderZamboniList() {
     const list    = document.getElementById('zamboni-list');
     const countEl = document.getElementById('zamboni-count');
     if (countEl) countEl.textContent = zamboniTimes.length;
+    if (!list) return;
+
+    const now = new Date();
+    let html;
     if (zamboniTimes.length === 0) {
-        list.innerHTML = '<li class="zamboni-empty">No cleanings logged yet.</li>';
-        return;
+        html = '<li class="zamboni-empty">No cleanings logged yet</li>';
+    } else {
+        html = zamboniTimes.map(z => {
+            const zEnd  = new Date(z.getTime() + ZAMBONI_DURATION * 60000);
+            const state = now >= zEnd ? 'done' : (now >= z ? 'now' : 'upcoming');
+            const note  = state === 'now' ? 'Cleaning now' : (state === 'done' ? 'Done' : 'until ' + formatTimeStr12(zEnd));
+            return '<li class="zamboni-item is-' + state + '">' +
+                '<span class="zamboni-time">' + formatTimeStr12(z) + '</span>' +
+                '<span class="zamboni-window">' + note + '</span>' +
+                '</li>';
+        }).join('');
     }
-    list.innerHTML = zamboniTimes.map((z, i) => {
-        const zEnd = new Date(z.getTime() + ZAMBONI_DURATION * 60000);
-        return `<li class="zamboni-item">
-            <div class="zamboni-item-left">
-                <span class="zamboni-item-icon">🚧</span>
-                <div>
-                    <div class="zamboni-time">${formatTimeStr12(z)}</div>
-                    <div class="zamboni-window">until ${formatTimeStr12(zEnd)}</div>
-                </div>
-            </div>
-            <button class="zamboni-remove" onclick="removeZamboni(${i})">✕</button>
-        </li>`;
-    }).join('');
+    if (html !== lastZamboniHtml) {
+        list.innerHTML  = html;
+        lastZamboniHtml = html;
+    }
 }
 
 window.addEventListener('load', () => {
-    const input = document.getElementById('zamboni-input');
-    if (input) input.addEventListener('keydown', e => { if (e.key === 'Enter') addZamboni(); });
     startClock();
     fetchData();
     startRefreshCycle();
@@ -180,6 +159,7 @@ function startClock() {
     const tick = () => {
         const el = document.getElementById('live-clock');
         if (el) el.textContent = formatTime12(new Date());
+        renderZamboniList();   // keeps "Cleaning now" / "Done" current even when the rink is empty
     };
     tick();
     setInterval(tick, 1000);
@@ -201,13 +181,26 @@ function startRefreshCycle() {
     }, REFRESH_MS);
 }
 
+function buildSheetUrl(sheetName) {
+    const tab = encodeURIComponent(sheetName);
+    return 'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID + '/values:batchGet' +
+        '?ranges=' + tab + '!' + DATA_RANGE +
+        '&ranges=' + tab + '!' + ZAMBONI_RANGE +
+        '&key=' + API_KEY;
+}
+
+function applySheetData(data) {
+    const ranges = (data && data.valueRanges) || [];
+    processZamboni((ranges[1] && ranges[1].values) || []);
+    processRows((ranges[0] && ranges[0].values) || []);
+}
+
 async function fetchData() {
     setStatus('connecting');
     const sheetName = getTodaySheetName();
     const tabEl = document.getElementById('sheet-tab');
     if (tabEl) tabEl.textContent = 'Sheet: ' + sheetName;
-    const range = encodeURIComponent(sheetName) + '!' + DATA_RANGE;
-    const url   = 'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID + '/values/' + range + '?key=' + API_KEY;
+    const url = buildSheetUrl(sheetName);
     try {
         const res = await fetch(url);
         if (!res.ok) {
@@ -218,7 +211,7 @@ async function fetchData() {
             throw new Error((err && err.error && err.error.message) || 'HTTP ' + res.status);
         }
         const data = await res.json();
-        processRows(data.values || []);
+        applySheetData(data);
         setStatus('live');
         updateLastRefreshed();
     } catch (e) {
@@ -230,13 +223,12 @@ async function fetchData() {
 
 async function silentFetch() {
     const sheetName = getTodaySheetName();
-    const range = encodeURIComponent(sheetName) + '!' + DATA_RANGE;
-    const url   = 'https://sheets.googleapis.com/v4/spreadsheets/' + SPREADSHEET_ID + '/values/' + range + '?key=' + API_KEY;
+    const url = buildSheetUrl(sheetName);
     try {
         const res = await fetch(url);
         if (!res.ok) return;
         const data = await res.json();
-        processRows(data.values || []);
+        applySheetData(data);
         setStatus('live');
         updateLastRefreshed();
     } catch (e) {
@@ -259,15 +251,23 @@ function processRows(rows) {
     renderVisible();
 }
 
+function withZamboni(s) {
+    const bonus = getZamboniBonus(s.timeOnDate, s.timeOffDate);
+    const effectiveTimeOff = s.timeOffDate ? new Date(s.timeOffDate.getTime() + bonus * 60000) : null;
+    return Object.assign({}, s, { bonus: bonus, effectiveTimeOff: effectiveTimeOff });
+}
+
+function isOnIce(s, now) {
+    const started = s.timeOnDate && s.timeOnDate <= now;
+    const notOver = !s.effectiveTimeOff || s.effectiveTimeOff > now;
+    return started && notOver;
+}
+
 function renderVisible() {
     const tbody = document.getElementById('skater-tbody');
     const now   = new Date();
 
-    let visible = allSkaterData.filter(s => {
-        const started = s.timeOnDate && s.timeOnDate <= now;
-        const notOver = !s.timeOffDate || s.timeOffDate > now;
-        return started && notOver;
-    });
+    let visible = allSkaterData.map(withZamboni).filter(s => isOnIce(s, now));
 
     if (visible.length === 0) {
         tbody.innerHTML = '<tr class="empty-row"><td colspan="6"><div class="empty-msg">No skaters currently on ice</div></td></tr>';
@@ -275,12 +275,6 @@ function renderVisible() {
         updateAffectedCount(0);
         return;
     }
-
-    visible = visible.map(s => {
-        const bonus = getZamboniBonus(s.timeOnDate, s.timeOffDate);
-        const effectiveTimeOff = s.timeOffDate ? new Date(s.timeOffDate.getTime() + bonus * 60000) : null;
-        return Object.assign({}, s, { bonus: bonus, effectiveTimeOff: effectiveTimeOff });
-    });
 
     visible.sort((a, b) => {
         if (a.effectiveTimeOff && b.effectiveTimeOff) return a.effectiveTimeOff - b.effectiveTimeOff;
@@ -323,11 +317,9 @@ function startCountdownTick() {
 function updateCountdowns() {
     const now = new Date();
 
-    const anyNew = allSkaterData.some(s => {
-        const started = s.timeOnDate && s.timeOnDate <= now;
-        const notOver = !s.timeOffDate || s.timeOffDate > now;
+    const anyNew = allSkaterData.map(withZamboni).some(s => {
         const inTable = document.querySelector('#skater-tbody tr[data-timeon="' + (s.timeOnDate ? s.timeOnDate.getTime() : '') + '"]');
-        return started && notOver && !inTable;
+        return isOnIce(s, now) && !inTable;
     });
     if (anyNew) { renderVisible(); return; }
 
@@ -377,16 +369,16 @@ function parseTime(str) {
     if (!str || str.trim() === '') return null;
     str = str.trim();
     const now = new Date();
-    const m12 = str.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    const m12 = str.match(/^(\d{1,2})(?::(\d{2}))?(?::\d{2})?\s*(AM|PM)$/i);
     if (m12) {
         let h = parseInt(m12[1]);
-        const m = parseInt(m12[2]);
+        const m = m12[2] ? parseInt(m12[2]) : 0;
         const ap = m12[3].toUpperCase();
         if (ap === 'PM' && h !== 12) h += 12;
         if (ap === 'AM' && h === 12) h = 0;
         return new Date(now.getFullYear(), now.getMonth(), now.getDate(), h, m, 0, 0);
     }
-    const m24 = str.match(/^(\d{1,2}):(\d{2})$/);
+    const m24 = str.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
     if (m24) return new Date(now.getFullYear(), now.getMonth(), now.getDate(), parseInt(m24[1]), parseInt(m24[2]), 0, 0);
     return null;
 }
