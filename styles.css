@@ -358,8 +358,8 @@ h1 {
         -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 2.4rem, #000 calc(100% - 8rem), transparent 100%);
                 mask-image: linear-gradient(to bottom, transparent 0, #000 2.4rem, #000 calc(100% - 8rem), transparent 100%);
     }
-    .scroller.is-scrolling .scroll-track { animation: drift linear infinite; will-change: transform; }
-    .scroller.is-scrolling .list-ice { padding-bottom: 4.4rem; }
+    .scroller.is-scrolling .scroll-track { will-change: transform, opacity; }
+    .scroller.is-scrolling .list-ice { padding-bottom: 8rem; }
 
     .row { height: 8.8rem; padding: 0 2rem; }
     .row-main { align-items: center; }
@@ -445,13 +445,7 @@ h1 {
     .toast { font-size: 2.6rem; padding: 1.8rem 3.6rem; border-radius: 1.6rem; }
 }
 
-@keyframes drift {
-    from { transform: translateY(0); }
-    to   { transform: translateY(-50%); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-    .scroller.is-scrolling .scroll-track { animation: none !important; }
     .scroller.is-scrolling { overflow-y: auto; -webkit-mask-image: none; mask-image: none; }
     * { transition-duration: 0.01ms !important; }
 }

@@ -7,7 +7,10 @@ const REFRESH_MS       = 60 * 1000;
 const WARN_MINUTES     = 10;         // "Leaving soon" group, gold
 const URGENT_MINUTES   = 5;          // red
 const ZAMBONI_DURATION = 10;
-const SCROLL_SECONDS_PER_ROW = 4;    // TV auto-scroll speed (bigger = slower)
+const SCROLL_HOLD_TOP        = 10;  // TV: seconds to stay at the top before scrolling
+const SCROLL_SECONDS_PER_ROW = 3;   // TV: scroll speed, seconds per skater (bigger = slower)
+const SCROLL_HOLD_BOTTOM     = 6;   // TV: seconds to stay at the end before going back to the top
+const SCROLL_FADE            = 0.6; // TV: seconds for the fade back to the top
 const ZAMBONI_TV_MAX   = 5;          // cleanings shown at once on the TV timeline
 const TV_QUERY         = '(min-width: 1200px)';
 const THEME_KEY        = 'freestyle-theme';
@@ -19,8 +22,7 @@ let lastZamboniHtml = '';
 let renderedKeys    = new Map();   // skater key -> effective time off (ms)
 let toastedKeys     = new Set();
 let exitPending     = false;
-let scrollStartedAt = 0;
-let scrollDuration  = 0;
+let scrollAnim      = null;
 
 const $ = id => document.getElementById(id);
 
@@ -365,7 +367,6 @@ function renderVisible(force) {
     $('group-ice').hidden = ice.length === 0;
     const iceHtml = ice.map(s => rowHtml(s, now)).join('');
     $('ice-list').innerHTML = iceHtml;
-    $('ice-list-copy').innerHTML = iceHtml;
 
     updateAutoScroll();
 }
@@ -410,37 +411,48 @@ function updateAutoScroll() {
     const scroller = $('scroller');
     const track    = $('scroll-track');
     const list     = $('ice-list');
-    const copy     = $('ice-list-copy');
     const isTV     = window.matchMedia(TV_QUERY).matches;
-    const rows     = list.children.length;
+    const reduce   = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-    copy.hidden = true;
-    const wasScrolling = scroller.classList.contains('is-scrolling');
+    // Remember where we were, so a refresh doesn't restart the cycle
+    let resumeAt = 0;
+    if (scrollAnim) {
+        resumeAt = Number(scrollAnim.currentTime) || 0;
+        scrollAnim.cancel();
+        scrollAnim = null;
+    }
     scroller.classList.remove('is-scrolling');
 
-    const overflows = isTV && rows > 0 && list.scrollHeight > scroller.clientHeight + 2;
-    if (!overflows) {
-        scrollDuration = 0;
-        track.style.animationDuration = '';
-        track.style.animationDelay = '';
-        return;
-    }
+    if (!isTV || list.children.length === 0) return;
 
-    // Keep the scroll position when the list is re-rendered, instead of jumping back to the top
-    let progress = 0;
-    if (wasScrolling && scrollDuration > 0) {
-        progress = (((performance.now() - scrollStartedAt) / 1000) % scrollDuration) / scrollDuration;
-    }
-    scrollDuration  = rows * SCROLL_SECONDS_PER_ROW;
-    scrollStartedAt = performance.now() - progress * scrollDuration * 1000;
+    scroller.classList.add('is-scrolling');   // adds the end padding and fade before measuring
+    const distance = track.scrollHeight - scroller.clientHeight;
+    if (distance <= 2) { scroller.classList.remove('is-scrolling'); return; }
+    if (reduce || !track.animate) return;     // reduced motion: the list can be scrolled by hand instead
 
-    copy.hidden = false;
-    track.style.animationDuration = scrollDuration + 's';
-    track.style.animationDelay = (-progress * scrollDuration).toFixed(2) + 's';
-    track.style.animationName = 'none';
-    void track.offsetHeight;
-    track.style.animationName = '';
-    scroller.classList.add('is-scrolling');
+    const rowHeight  = list.firstElementChild.offsetHeight || 1;
+    const scrollSecs = Math.max(4, (distance / rowHeight) * SCROLL_SECONDS_PER_ROW);
+    const total      = SCROLL_HOLD_TOP + scrollSecs + SCROLL_HOLD_BOTTOM + SCROLL_FADE * 2;
+    const at         = secs => secs / total;
+    const tDown      = SCROLL_HOLD_TOP;
+    const tEnd       = tDown + scrollSecs;
+    const tFade      = tEnd + SCROLL_HOLD_BOTTOM;
+    const tGone      = tFade + SCROLL_FADE;
+    const top        = 'translateY(0)';
+    const bottom     = 'translateY(' + (-distance) + 'px)';
+
+    // Hold at the top, scroll down to the last skater, hold, fade back to the top, repeat
+    scrollAnim = track.animate([
+        { offset: 0,                                  transform: top,    opacity: 1 },
+        { offset: at(tDown),                          transform: top,    opacity: 1, easing: 'ease-in-out' },
+        { offset: at(tEnd),                           transform: bottom, opacity: 1 },
+        { offset: at(tFade),                          transform: bottom, opacity: 1, easing: 'ease-in' },
+        { offset: at(tGone),                          transform: bottom, opacity: 0 },
+        { offset: Math.min(1, at(tGone) + 0.0001),    transform: top,    opacity: 0, easing: 'ease-out' },
+        { offset: 1,                                  transform: top,    opacity: 1 }
+    ], { duration: total * 1000, iterations: Infinity });
+
+    if (resumeAt) scrollAnim.currentTime = resumeAt % (total * 1000);
 }
 
 /* ===== Zamboni panel ===== */
